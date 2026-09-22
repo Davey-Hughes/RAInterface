@@ -1,7 +1,22 @@
 #ifndef RA_INTERFACE_H
 #define RA_INTERFACE_H
 
-#include <wtypes.h> /* HWND */
+#include <stddef.h>   /* wchar_t, for RA_MenuItem.sLabel */
+#include <stdint.h>
+#ifndef __cplusplus
+ #include <stdbool.h>   /* RA_SetPaused takes bool; C clients have never had it declared */
+#endif
+
+#ifdef _WIN32
+ #include <wtypes.h> /* HWND, HMENU, LPARAM */
+ typedef HWND   RA_WindowHandle;
+ typedef LPARAM RA_MenuItemId;
+#else
+ /* Reserved. The integration does not parent its windows to the client on
+  * non-Windows platforms; pass NULL. */
+ typedef void*    RA_WindowHandle;
+ typedef intptr_t RA_MenuItemId;
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -21,7 +36,7 @@ extern "C" {
  * @param nEmulatorID     the unique idenfier of the emulator
  * @param sClientVersion  the current version of the emulator (will be validated against the minimum version for the specified emulator ID)
  */
-extern void RA_Init(HWND hMainHWND, int nEmulatorID, const char* sClientVersion);
+extern void RA_Init(RA_WindowHandle hMainHWND, int nEmulatorID, const char* sClientVersion);
 
 /**
  * Loads and initializes the DLL.
@@ -33,7 +48,7 @@ extern void RA_Init(HWND hMainHWND, int nEmulatorID, const char* sClientVersion)
  * @param sClientName     the name of the client, displayed in the title bar and included in the User-Agent for API calls
  * @param sClientVersion  the current version of the client
  */
-extern void RA_InitClient(HWND hMainHWND, const char* sClientName, const char* sClientVersion);
+extern void RA_InitClient(RA_WindowHandle hMainHWND, const char* sClientName, const char* sClientVersion);
 
 /**
  * Defines callbacks that the DLL can use to interact with the client.
@@ -59,12 +74,17 @@ extern void RA_InstallSharedFunctions(int (*fpUnusedIsActive)(void),
  */
 extern void RA_SetForceRepaint(int bEnable);
 
+#ifdef _WIN32
 /**
  * Creates a popup menu that can be appended to the main menu of the emulator.
+ *
+ * Win32 only. On other platforms, build the menu from RA_GetPopupMenuItems and
+ * dispatch selections through RA_InvokeDialog.
  *
  * @return                handle to the menu. if not attached to the program menu, caller must destroy it themselves.
  */
 extern HMENU RA_CreatePopupMenu(void);
+#endif
 
 /* Resource values for menu items - needed by MFC ON_COMMAND_RANGE macros or WM_COMMAND WndProc handlers
  * they're not all currently used, allowing additional items without forcing recompilation of the emulators
@@ -74,8 +94,8 @@ extern HMENU RA_CreatePopupMenu(void);
 
 typedef struct RA_MenuItem
 {
-    LPCWSTR sLabel;
-    LPARAM nID;
+    const wchar_t* sLabel;
+    RA_MenuItemId nID;
     int bChecked;
 } RA_MenuItem;
 
@@ -92,7 +112,7 @@ extern int RA_GetPopupMenuItems(RA_MenuItem *pItems);
  *
  * @param nID             the ID of the menu item (will be between IDM_RA_MENUSTART and IDM_RA_MENUEND)
  */
-extern void RA_InvokeDialog(LPARAM nID);
+extern void RA_InvokeDialog(RA_MenuItemId nID);
 
 /**
  * Provides additional information to include in the User-Agent string for API calls.
@@ -192,12 +212,15 @@ struct ControllerInput
  */
 extern void RA_NavigateOverlay(struct ControllerInput* pInput);
 
+#ifdef _WIN32
 /**
  * [deprecated] Updates the overlay for a single frame.
  *
  * This function just calls RA_NavigateOverlay. Updating and rendering is now handled internally to the DLL.
+ * Win32 only; both Win32 parameters are ignored by the implementation.
  */
 extern void RA_UpdateRenderOverlay(HDC, struct ControllerInput* pInput, float, RECT*, bool, bool);
+#endif
 
 /**
  * Updates the handle to the main window.
@@ -207,7 +230,7 @@ extern void RA_UpdateRenderOverlay(HDC, struct ControllerInput* pInput, float, R
  *
  * @param hMainHWND       the new handle of the main window
  */
-extern void RA_UpdateHWnd(HWND hMainHWND);
+extern void RA_UpdateHWnd(RA_WindowHandle hMainHWND);
 
 
 
@@ -226,7 +249,7 @@ extern void RA_UpdateHWnd(HWND hMainHWND);
  * @param nROMSize        the size of the game file
  * @return                the unique identifier of the game, 0 if no association available.
  */
-extern unsigned int RA_IdentifyRom(BYTE* pROMData, unsigned int nROMSize);
+extern unsigned int RA_IdentifyRom(unsigned char* pROMData, unsigned int nROMSize);
 
 /**
  * Identifies the game associated to a pre-generated hash.
@@ -254,7 +277,7 @@ extern void RA_ActivateGame(unsigned int nGameId);
  * @param pROMData        the contents of the game file
  * @param nROMSize        the size of the game file
  */
-extern void RA_OnLoadNewRom(BYTE* pROMData, unsigned int nROMSize);
+extern void RA_OnLoadNewRom(unsigned char* pROMData, unsigned int nROMSize);
 
 /**
  * Called before unloading the game to allow the user to save any changes they might have.

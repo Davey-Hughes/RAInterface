@@ -14,7 +14,8 @@ RetroAchievements Emulator Requirements:
   [ ] Unidentified game provides list of known games for console (RA_SetConsoleID - which is usually called by RAIntegration in the emulator registration)
 [ ] Emulator
   [ ] DLL is downloaded if not available (RA_Init - new EmulatorID enum value may be needed in RA_Interface.h)
-  [ ] RetroAchievements menu is visible (RA_CreatePopupMenu) and functional (RA_InvokeDialog)
+  [ ] RetroAchievements menu is visible and functional (RA_InvokeDialog). Win32 clients may use
+      RA_CreatePopupMenu; any other client builds its own menu from RA_GetPopupMenuItems.
   [ ] RetroAchievements menu updates when logging in/out (RA_InstallSharedFunctions>RA_RebuildMenu)
   [ ] Login dialog displayed on first run or auto-login on future runs (RA_AttemptLogin)
   [ ] Title includes logged in user (RA_UpdateAppTitle)
