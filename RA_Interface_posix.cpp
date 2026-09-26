@@ -39,6 +39,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#include <atomic>
 #include <cerrno>
 #include <cstdio>
 #include <cstring>
@@ -61,6 +62,7 @@ static int          (*_RA_InitOffline)(RA_WindowHandle hMainWnd, int nConsoleID,
 static int          (*_RA_InitClient)(RA_WindowHandle hMainWnd, const char* sClientName, const char* sClientVer) = nullptr;
 static int          (*_RA_InitClientOffline)(RA_WindowHandle hMainWnd, const char* sClientName, const char* sClientVer) = nullptr;
 static void         (*_RA_InstallSharedFunctions)(int(*)(), void(*)(), void(*)(), void(*)(), void(*)(char*), void(*)(), void(*)(const char*)) = nullptr;
+static void         (*_RA_InstallHostDispatcher)(void (*)(void (*)(void*), void*)) = nullptr;
 static void         (*_RA_SetForceRepaint)(int bEnable) = nullptr;
 static int          (*_RA_GetPopupMenuItems)(RA_MenuItem*) = nullptr;
 static void         (*_RA_InvokeDialog)(RA_MenuItemId nID) = nullptr;
@@ -101,6 +103,50 @@ static void* g_hRAIntegration = nullptr;
 /* The full path libRA_Integration.so was (or was last) loaded from, set by
    InstallIntegration and used in every message that names the library. */
 static std::string g_sIntegrationPath;
+
+/* RA_InstallHostDispatcher. The emulator's post function is kept here, on the
+ * emulator's side of the dlopen boundary, and the library is handed
+ * PostFromIntegration instead. Each post carries RunHostWork, which lives in
+ * this file - in the emulator's executable, never unloaded - and calls the
+ * library's work function only if the library that posted it is still the one
+ * loaded. Posting the library's own function directly would leave the emulator
+ * holding a pointer into code that RA_Shutdown's dlclose may have unmapped by
+ * the time the emulator gets round to running it. */
+static std::atomic<void (*)(void (*)(void*), void*)> g_fpHostPost{nullptr};
+static std::atomic<unsigned> g_nIntegrationGeneration{0};
+
+struct HostWork
+{
+    void (*fpWork)(void*);
+    void* pContext;
+    unsigned nGeneration;
+};
+
+static void RunHostWork(void* pItem)
+{
+    HostWork* pWork = static_cast<HostWork*>(pItem);
+    if (pWork->nGeneration == g_nIntegrationGeneration.load() && g_hRAIntegration != nullptr)
+        pWork->fpWork(pWork->pContext);
+    delete pWork;
+}
+
+static void PostFromIntegration(void (*fpWork)(void*), void* pContext)
+{
+    const auto fpPost = g_fpHostPost.load();
+    if (fpPost == nullptr)
+        return;
+
+    fpPost(&RunHostWork, new HostWork{fpWork, pContext, g_nIntegrationGeneration.load()});
+}
+
+/* Hands the emulator's post function, or its absence, to a loaded library that
+   understands one. Called when the emulator installs it and after every init:
+   a library loaded - or re-initialized - later starts without one. */
+static void ForwardHostDispatcher()
+{
+    if (_RA_InstallHostDispatcher != nullptr)
+        _RA_InstallHostDispatcher(g_fpHostPost.load() != nullptr ? &PostFromIntegration : nullptr);
+}
 
 void RA_AttemptLogin(int bBlocking)
 {
@@ -376,6 +422,11 @@ static void UnloadIntegration()
     _RA_OnLoadState = nullptr;
     _RA_CaptureState = nullptr;
     _RA_RestoreState = nullptr;
+    _RA_InstallHostDispatcher = nullptr;
+
+    /* anything this library posted and the emulator has not run yet must not
+       call into it now (RunHostWork) */
+    g_nIntegrationGeneration.fetch_add(1);
 
     /* unload the library. A clang build unmaps it here; a GCC build most
        likely stays mapped. Nothing depends on either. */
@@ -470,6 +521,7 @@ static bool InstallIntegration()
     Resolve(_RA_OnLoadState, "_RA_OnLoadState");
     Resolve(_RA_CaptureState, "_RA_CaptureState");
     Resolve(_RA_RestoreState, "_RA_RestoreState");
+    Resolve(_RA_InstallHostDispatcher, "_RA_InstallHostDispatcher"); /* optional: older libraries lack it */
 
     /* No _RA_* entry point has run yet, so it can simply be unloaded. Its
        static constructors have already run, though, and dlclose will run
@@ -520,12 +572,14 @@ static void RA_InitCommon(RA_WindowHandle hMainHWND, int nEmulatorID, const char
         if (sClientName == nullptr && _RA_InitOffline != nullptr)
         {
             _RA_InitOffline(hMainHWND, nEmulatorID, sClientVersion);
+            ForwardHostDispatcher();
             return;
         }
 
         if (sClientName != nullptr && _RA_InitClientOffline != nullptr)
         {
             _RA_InitClientOffline(hMainHWND, sClientName, sClientVersion);
+            ForwardHostDispatcher();
             return;
         }
     }
@@ -534,6 +588,8 @@ static void RA_InitCommon(RA_WindowHandle hMainHWND, int nEmulatorID, const char
                                                  : _RA_InitClient(hMainHWND, sClientName, sClientVersion);
     if (!nResult)
         RA_Shutdown();
+    else
+        ForwardHostDispatcher();
 }
 
 void RA_Init(RA_WindowHandle hMainHWND, int nEmulatorID, const char* sClientVersion)
@@ -556,6 +612,12 @@ void RA_InstallSharedFunctions(int(*)(void), void(*fpCauseUnpause)(void), void(*
 {
     if (_RA_InstallSharedFunctions != nullptr)
         _RA_InstallSharedFunctions(nullptr, fpCauseUnpause, fpCausePause, fpRebuildMenu, fpEstimateTitle, fpResetEmulation, fpLoadROM);
+}
+
+void RA_InstallHostDispatcher(void (*fpPost)(void (*fpWork)(void*), void* pContext))
+{
+    g_fpHostPost.store(fpPost);
+    ForwardHostDispatcher();
 }
 
 void RA_Shutdown(void)

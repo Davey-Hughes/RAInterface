@@ -66,6 +66,21 @@ extern void RA_InstallSharedFunctions(int (*fpUnusedIsActive)(void),
     void (*fpEstimateTitle)(char*), void (*fpResetEmulator)(void), void (*fpLoadROM)(const char*));
 
 /**
+ * Lets the DLL run the functions installed by RA_InstallSharedFunctions on the emulator's own thread - the one that
+ * called RA_Init - when it needs one of them from another thread (a network callback, or the DLL's own UI thread).
+ *
+ * fpPost must be safe to call from any thread, must return without calling fpWork, and must arrange for
+ * fpWork(pContext) to be called soon on the emulator's thread - also while emulation is paused. Typically it pushes an
+ * event into the emulator's own event queue. Pass NULL to uninstall. May be called before or after RA_Init.
+ *
+ * Optional. Without it, such calls wait for the next RA_DoAchievementsFrame. On Windows the DLL marshals through its
+ * own window messages and ignores this.
+ *
+ * @param fpPost            schedules fpWork(pContext) on the emulator's thread
+ */
+extern void RA_InstallHostDispatcher(void (*fpPost)(void (*fpWork)(void* pContext), void* pContext));
+
+/**
  * Tells the DLL to use UpdateWindow instead of InvalidateRect when the UI needs to be repainted. This is primarily
  * necessary when integrating with an emulator using the SDL library as it keeps the message queue flooded so the
  * InvalidateRect messages never get turned into WM_PAINT messages.

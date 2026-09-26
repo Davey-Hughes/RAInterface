@@ -1249,6 +1249,12 @@ void RA_InstallSharedFunctions(int(*)(void), void(*fpCauseUnpause)(void), void(*
         _RA_InstallSharedFunctions(nullptr, fpCauseUnpause, fpCausePause, fpRebuildMenu, fpEstimateTitle, fpResetEmulation, fpLoadROM);
 }
 
+void RA_InstallHostDispatcher(void (*)(void (*)(void*), void*))
+{
+    /* The DLL marshals the emulator's callbacks through its own dispatching
+       window on the emulator's UI thread, so there is nothing to install. */
+}
+
 void RA_Shutdown()
 {
     //	Call shutdown on toolchain
