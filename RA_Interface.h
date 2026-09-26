@@ -73,6 +73,10 @@ extern void RA_InstallSharedFunctions(int (*fpUnusedIsActive)(void),
  * fpWork(pContext) to be called soon on the emulator's thread - also while emulation is paused. Typically it pushes an
  * event into the emulator's own event queue. Pass NULL to uninstall. May be called before or after RA_Init.
  *
+ * fpPost must stay callable until RA_Shutdown returns: a post already under way on another thread can still reach it
+ * just after RA_InstallHostDispatcher(NULL). Run every fpWork it was given, also when shutting down - after
+ * RA_Shutdown it does nothing, but each one that is never run leaks a small allocation.
+ *
  * Optional. Without it, such calls wait for the next RA_DoAchievementsFrame. On Windows the DLL marshals through its
  * own window messages and ignores this.
  *
