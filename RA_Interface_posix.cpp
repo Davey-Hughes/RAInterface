@@ -10,10 +10,16 @@
  * download and no version check: the server's r=latestintegration answer
  * only ever offers the Windows DLL. If the library is missing or cannot be
  * loaded, one line goes to stderr and every RA_* function below does nothing,
- * so the emulator runs without achievements.
+ * so the emulator runs without achievements. The executable's directory is
+ * found through /proc/self/exe, which Linux provides; where that is missing
+ * the lookup fails and the emulator runs without achievements.
  *
- * The library is loaded RTLD_LOCAL, so none of its symbols can bind to, or
- * be bound by, a definition elsewhere in the process.
+ * The library is loaded RTLD_LOCAL, which keeps its symbols out of the
+ * process's global scope: nothing loaded after it can bind to them. That
+ * does not stop the library's own references from resolving against
+ * definitions already in the process; libRA_Integration.so is linked with
+ * -Bsymbolic-functions so that its calls to its own functions stay inside
+ * it.
  *
  * Every definition must match its declaration in RA_Interface.h exactly,
  * spelled with the header's RA_WindowHandle and RA_MenuItemId. A definition
@@ -33,7 +39,9 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#include <cerrno>
 #include <cstdio>
+#include <cstring>
 #include <stdexcept>
 #include <string>
 
@@ -89,6 +97,10 @@ static int          (*_RA_CaptureState)(char* pBuffer, int nBufferSize) = nullpt
 static void         (*_RA_RestoreState)(const char* pBuffer) = nullptr;
 
 static void* g_hRAIntegration = nullptr;
+
+/* The full path libRA_Integration.so was (or was last) loaded from, set by
+   InstallIntegration and used in every message that names the library. */
+static std::string g_sIntegrationPath;
 
 void RA_AttemptLogin(int bBlocking)
 {
@@ -365,8 +377,8 @@ static void UnloadIntegration()
     _RA_CaptureState = nullptr;
     _RA_RestoreState = nullptr;
 
-    /* unload the library. Whether dlclose really unmaps it is not something
-       to depend on: a GCC build most likely stays mapped. */
+    /* unload the library. A clang build unmaps it here; a GCC build most
+       likely stays mapped. Nothing depends on either. */
     if (g_hRAIntegration != nullptr)
     {
         dlclose(g_hRAIntegration);
@@ -394,7 +406,16 @@ static bool InstallIntegration()
     struct stat oStat;
     if (stat(sPath.c_str(), &oStat) != 0)
     {
-        std::fprintf(stderr, "RA_Interface: " RA_INT_SO " not found in %s; achievements are disabled\n", sDirectory.c_str());
+        const int nStatErrno = errno;
+        if (nStatErrno == ENOENT)
+        {
+            std::fprintf(stderr, "RA_Interface: " RA_INT_SO " not found in %s; achievements are disabled\n", sDirectory.c_str());
+        }
+        else
+        {
+            std::fprintf(stderr, "RA_Interface: cannot access %s: %s; achievements are disabled\n", sPath.c_str(),
+                         std::strerror(nStatErrno));
+        }
         return false;
     }
 
@@ -406,6 +427,8 @@ static bool InstallIntegration()
                      sError ? sError : "unknown error");
         return false;
     }
+
+    g_sIntegrationPath = sPath;
 
     //	Install function pointers one by one
     Resolve(_RA_IntegrationVersion, "_RA_IntegrationVersion");
@@ -448,13 +471,15 @@ static bool InstallIntegration()
     Resolve(_RA_CaptureState, "_RA_CaptureState");
     Resolve(_RA_RestoreState, "_RA_RestoreState");
 
-    /* Nothing in the library has run yet, so it can simply be unloaded. */
+    /* No _RA_* entry point has run yet, so it can simply be unloaded. Its
+       static constructors have already run, though, and dlclose will run
+       its destructors. */
     const char* sMissing = (_RA_IntegrationVersion == nullptr) ? "_RA_IntegrationVersion"
                          : (_RA_Shutdown == nullptr)           ? "_RA_Shutdown"
                          : nullptr;
     if (sMissing != nullptr)
     {
-        std::fprintf(stderr, "RA_Interface: %s does not export %s; achievements are disabled\n", sPath.c_str(), sMissing);
+        std::fprintf(stderr, "RA_Interface: %s does not export %s; achievements are disabled\n", g_sIntegrationPath.c_str(), sMissing);
         UnloadIntegration();
         return false;
     }
@@ -473,8 +498,8 @@ static void RA_InitCommon(RA_WindowHandle hMainHWND, int nEmulatorID, const char
     const bool bHasInit = (sClientName == nullptr) ? (_RA_InitI != nullptr) : (_RA_InitClient != nullptr);
     if (!bHasInit)
     {
-        std::fprintf(stderr, "RA_Interface: " RA_INT_SO " does not export %s; achievements are disabled\n",
-                     (sClientName == nullptr) ? "_RA_InitI" : "_RA_InitClient");
+        std::fprintf(stderr, "RA_Interface: %s does not export %s; achievements are disabled\n",
+                     g_sIntegrationPath.c_str(), (sClientName == nullptr) ? "_RA_InitI" : "_RA_InitClient");
         RA_Shutdown();
         return;
     }
