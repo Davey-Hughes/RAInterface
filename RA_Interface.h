@@ -66,19 +66,25 @@ extern void RA_InstallSharedFunctions(int (*fpUnusedIsActive)(void),
     void (*fpEstimateTitle)(char*), void (*fpResetEmulator)(void), void (*fpLoadROM)(const char*));
 
 /**
- * Lets the DLL run the functions installed by RA_InstallSharedFunctions on the emulator's own thread - the one that
- * called RA_Init - when it needs one of them from another thread (a network callback, or the DLL's own UI thread).
+ * Lets the library run the functions installed by RA_InstallSharedFunctions on the emulator's own thread - the one
+ * that called RA_Init - when it needs one of them from another thread (a network callback, or the library's own UI
+ * thread).
  *
  * fpPost must be safe to call from any thread, must return without calling fpWork, and must arrange for
  * fpWork(pContext) to be called soon on the emulator's thread - also while emulation is paused. Typically it pushes an
  * event into the emulator's own event queue. Pass NULL to uninstall. May be called before or after RA_Init.
  *
+ * fpPost must not wait for the emulator's thread. The library calls it from its worker threads, and RA_Shutdown joins
+ * those workers on the emulator's thread without a time limit, so a post that blocks until the emulator's thread
+ * answers deadlocks the shutdown.
+ *
  * fpPost must stay callable until RA_Shutdown returns: a post already under way on another thread can still reach it
  * just after RA_InstallHostDispatcher(NULL). Run every fpWork it was given, also when shutting down - after
  * RA_Shutdown it does nothing, but each one that is never run leaks a small allocation.
  *
- * Optional. Without it, such calls wait for the next RA_DoAchievementsFrame. On Windows the DLL marshals through its
- * own window messages and ignores this.
+ * Optional. Whether or not it is installed, RA_DoAchievementsFrame also runs the pending calls first thing when it is
+ * called on the emulator's thread, so these functions can be called from inside RA_DoAchievementsFrame. Without it,
+ * that is the only place they run. On Windows the DLL marshals through its own window messages and ignores this.
  *
  * @param fpPost            schedules fpWork(pContext) on the emulator's thread
  */
