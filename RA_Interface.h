@@ -70,6 +70,9 @@ extern void RA_InstallSharedFunctions(int (*fpUnusedIsActive)(void),
  * that called RA_Init - when it needs one of them from another thread (a network callback, or the library's own UI
  * thread).
  *
+ * fpEstimateTitle is the exception: the library calls it directly, from whichever thread needs the title - its worker
+ * threads included, as on Windows - so it must be safe to call while the emulator is running a frame.
+ *
  * fpPost must be safe to call from any thread, must return without calling fpWork, and must arrange for
  * fpWork(pContext) to be called soon on the emulator's thread - also while emulation is paused. Typically it pushes an
  * event into the emulator's own event queue. Pass NULL to uninstall. May be called before or after RA_Init.
