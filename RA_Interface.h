@@ -260,6 +260,16 @@ extern void RA_UpdateRenderOverlay(HDC, struct ControllerInput* pInput, float, R
  */
 extern void RA_UpdateHWnd(RA_WindowHandle hMainHWND);
 
+#ifndef _WIN32
+/* Linux hosts: the overlay (popups, trackers, the pause overlay) as an image the host draws over its picture.
+ * width, height: the host's drawable in device pixels; scale: device pixels per logical pixel (1 when unsure).
+ * Returns 0 when nothing is visible (*pixels = NULL, *stride = 0): draw nothing.
+ * Otherwise returns a serial that changes only when the picture changes, and sets *pixels to width x height
+ * premultiplied ARGB32 pixels (0xAARRGGBB in native byte order), rows top-down, *stride bytes apart. The
+ * pointer is valid until the next call. Call it only on the thread that called RA_Init; elsewhere it returns 0. */
+extern int RA_UpdateOverlayImage(int width, int height, float scale, const void** pixels, int* stride);
+#endif
+
 
 
 /******************************

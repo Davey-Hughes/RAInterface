@@ -78,6 +78,7 @@ static int          (*_RA_IsOverlayFullyVisible)() = nullptr;
 static void         (*_RA_SetPaused)(int bIsPaused) = nullptr;
 static void         (*_RA_NavigateOverlay)(ControllerInput* pInput) = nullptr;
 static void         (*_RA_UpdateHWnd)(RA_WindowHandle hMainHWND) = nullptr;
+static int          (*_RA_UpdateOverlayImage)(int nWidth, int nHeight, float fScale, const void** ppPixels, int* pStride) = nullptr;
 // Game Management
 static unsigned int (*_RA_IdentifyRom)(const unsigned char* pROM, unsigned int nROMSize) = nullptr;
 static unsigned int (*_RA_IdentifyHash)(const char* sHash) = nullptr;
@@ -180,6 +181,19 @@ void RA_UpdateHWnd(RA_WindowHandle hMainWnd)
 {
     if (_RA_UpdateHWnd != nullptr)
         _RA_UpdateHWnd(hMainWnd);
+}
+
+int RA_UpdateOverlayImage(int width, int height, float scale, const void** pixels, int* stride)
+{
+    if (_RA_UpdateOverlayImage != nullptr)
+        return _RA_UpdateOverlayImage(width, height, scale, pixels, stride);
+
+    /* no library, or one without the export: nothing to draw */
+    if (pixels != nullptr)
+        *pixels = nullptr;
+    if (stride != nullptr)
+        *stride = 0;
+    return 0;
 }
 
 unsigned int RA_IdentifyRom(unsigned char* pROMData, unsigned int nROMSize)
@@ -405,6 +419,7 @@ static void UnloadIntegration()
     _RA_SetPaused = nullptr;
     _RA_NavigateOverlay = nullptr;
     _RA_UpdateHWnd = nullptr;
+    _RA_UpdateOverlayImage = nullptr;
     _RA_IdentifyRom = nullptr;
     _RA_IdentifyHash = nullptr;
     _RA_ActivateGame = nullptr;
@@ -522,6 +537,7 @@ static bool InstallIntegration()
     Resolve(_RA_CaptureState, "_RA_CaptureState");
     Resolve(_RA_RestoreState, "_RA_RestoreState");
     Resolve(_RA_InstallHostDispatcher, "_RA_InstallHostDispatcher"); /* optional: older libraries lack it */
+    Resolve(_RA_UpdateOverlayImage, "_RA_UpdateOverlayImage"); /* optional: older libraries lack it */
 
     /* No _RA_* entry point has run yet, so it can simply be unloaded. Its
        static constructors have already run, though, and dlclose will run
@@ -535,6 +551,10 @@ static bool InstallIntegration()
         UnloadIntegration();
         return false;
     }
+
+    /* the emulator cannot tell "no overlay export" from "nothing to show": both answer 0, so say it here */
+    if (_RA_UpdateOverlayImage == nullptr)
+        std::fprintf(stderr, "RA_Interface: %s does not export _RA_UpdateOverlayImage; the overlay is not drawn\n", g_sIntegrationPath.c_str());
 
     return true;
 }
