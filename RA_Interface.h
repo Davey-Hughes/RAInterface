@@ -271,10 +271,13 @@ extern int RA_UpdateOverlayImage(int width, int height, float scale, const void*
 
 /* Linux hosts: lets the library take achievement screenshots. fpCapture fills in the game picture as the window
  * shows it, without the overlay: *width x *height device pixels (the size the host passes to RA_UpdateOverlayImage),
- * 0xAARRGGBB in native byte order with the top byte ignored (treated as opaque), rows top-down, *stride bytes apart.
- * Returns non-zero on success, 0 when there is no picture. The pointer stays valid until the next call.
- * The library calls it only on the thread that called RA_Init, from inside RA_DoAchievementsFrame, and never from
- * inside RA_UpdateOverlayImage. May be called before or after RA_Init; NULL uninstalls. */
+ * each at most 16384, 0xAARRGGBB in native byte order with the top byte ignored (treated as opaque), rows top-down,
+ * *stride bytes apart (a multiple of 4), *pixels 4-byte aligned. Returns non-zero on success, 0 when there is no
+ * picture. The pointer stays valid until the next call.
+ * The library calls it only on the thread that called RA_Init, and only from inside one of the host's own calls into
+ * the library: RA_DoAchievementsFrame for an unlock; for a mastery, whichever of RA_DoAchievementsFrame, RA_OnReset,
+ * RA_OnLoadState or RA_RestoreState raises it. Never from inside RA_UpdateOverlayImage. fpCapture must not call into
+ * the library. RA_InstallScreenCapture may be called before or after RA_Init; NULL uninstalls. */
 extern void RA_InstallScreenCapture(int (*fpCapture)(int* width, int* height, const void** pixels, int* stride));
 #endif
 
