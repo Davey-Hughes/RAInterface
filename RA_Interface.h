@@ -268,6 +268,14 @@ extern void RA_UpdateHWnd(RA_WindowHandle hMainHWND);
  * premultiplied ARGB32 pixels (0xAARRGGBB in native byte order), rows top-down, *stride bytes apart. The
  * pointer is valid until the next call. Call it only on the thread that called RA_Init; elsewhere it returns 0. */
 extern int RA_UpdateOverlayImage(int width, int height, float scale, const void** pixels, int* stride);
+
+/* Linux hosts: lets the library take achievement screenshots. fpCapture fills in the game picture as the window
+ * shows it, without the overlay: *width x *height device pixels (the size the host passes to RA_UpdateOverlayImage),
+ * 0xAARRGGBB in native byte order with the top byte ignored (treated as opaque), rows top-down, *stride bytes apart.
+ * Returns non-zero on success, 0 when there is no picture. The pointer stays valid until the next call.
+ * The library calls it only on the thread that called RA_Init, from inside RA_DoAchievementsFrame, and never from
+ * inside RA_UpdateOverlayImage. May be called before or after RA_Init; NULL uninstalls. */
+extern void RA_InstallScreenCapture(int (*fpCapture)(int* width, int* height, const void** pixels, int* stride));
 #endif
 
 

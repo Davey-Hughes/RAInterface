@@ -79,6 +79,7 @@ static void         (*_RA_SetPaused)(int bIsPaused) = nullptr;
 static void         (*_RA_NavigateOverlay)(ControllerInput* pInput) = nullptr;
 static void         (*_RA_UpdateHWnd)(RA_WindowHandle hMainHWND) = nullptr;
 static int          (*_RA_UpdateOverlayImage)(int nWidth, int nHeight, float fScale, const void** ppPixels, int* pStride) = nullptr;
+static void         (*_RA_InstallScreenCapture)(int (*)(int*, int*, const void**, int*)) = nullptr;
 // Game Management
 static unsigned int (*_RA_IdentifyRom)(const unsigned char* pROM, unsigned int nROMSize) = nullptr;
 static unsigned int (*_RA_IdentifyHash)(const char* sHash) = nullptr;
@@ -147,6 +148,33 @@ static void ForwardHostDispatcher()
 {
     if (_RA_InstallHostDispatcher != nullptr)
         _RA_InstallHostDispatcher(g_fpHostPost.load() != nullptr ? &PostFromIntegration : nullptr);
+}
+
+/* RA_InstallScreenCapture. Kept here and handed over in the same way, and for
+   the same reason: a library loaded - or re-initialized - later starts without
+   one. The library may call the emulator's function directly: it lives in the
+   emulator, which is never unloaded, and the library calls it only from inside
+   RA_DoAchievementsFrame. */
+static std::atomic<int (*)(int*, int*, const void**, int*)> g_fpScreenCapture{nullptr};
+
+static void ForwardScreenCapture()
+{
+    if (_RA_InstallScreenCapture != nullptr)
+    {
+        _RA_InstallScreenCapture(g_fpScreenCapture.load());
+    }
+    else if (g_hRAIntegration != nullptr && g_fpScreenCapture.load() != nullptr)
+    {
+        /* the emulator cannot tell that its function is never called, so say it here */
+        std::fprintf(stderr, "RA_Interface: %s does not export _RA_InstallScreenCapture; achievement screenshots are not taken\n", g_sIntegrationPath.c_str());
+    }
+}
+
+/* Everything the emulator installed before the library was (re)initialized. */
+static void ForwardHostFunctions()
+{
+    ForwardHostDispatcher();
+    ForwardScreenCapture();
 }
 
 void RA_AttemptLogin(int bBlocking)
@@ -420,6 +448,7 @@ static void UnloadIntegration()
     _RA_NavigateOverlay = nullptr;
     _RA_UpdateHWnd = nullptr;
     _RA_UpdateOverlayImage = nullptr;
+    _RA_InstallScreenCapture = nullptr;
     _RA_IdentifyRom = nullptr;
     _RA_IdentifyHash = nullptr;
     _RA_ActivateGame = nullptr;
@@ -538,6 +567,7 @@ static bool InstallIntegration()
     Resolve(_RA_RestoreState, "_RA_RestoreState");
     Resolve(_RA_InstallHostDispatcher, "_RA_InstallHostDispatcher"); /* optional: older libraries lack it */
     Resolve(_RA_UpdateOverlayImage, "_RA_UpdateOverlayImage"); /* optional: older libraries lack it */
+    Resolve(_RA_InstallScreenCapture, "_RA_InstallScreenCapture"); /* optional: older libraries lack it */
 
     /* No _RA_* entry point has run yet, so it can simply be unloaded. Its
        static constructors have already run, though, and dlclose will run
@@ -592,14 +622,14 @@ static void RA_InitCommon(RA_WindowHandle hMainHWND, int nEmulatorID, const char
         if (sClientName == nullptr && _RA_InitOffline != nullptr)
         {
             _RA_InitOffline(hMainHWND, nEmulatorID, sClientVersion);
-            ForwardHostDispatcher();
+            ForwardHostFunctions();
             return;
         }
 
         if (sClientName != nullptr && _RA_InitClientOffline != nullptr)
         {
             _RA_InitClientOffline(hMainHWND, sClientName, sClientVersion);
-            ForwardHostDispatcher();
+            ForwardHostFunctions();
             return;
         }
     }
@@ -609,7 +639,7 @@ static void RA_InitCommon(RA_WindowHandle hMainHWND, int nEmulatorID, const char
     if (!nResult)
         RA_Shutdown();
     else
-        ForwardHostDispatcher();
+        ForwardHostFunctions();
 }
 
 void RA_Init(RA_WindowHandle hMainHWND, int nEmulatorID, const char* sClientVersion)
@@ -638,6 +668,12 @@ void RA_InstallHostDispatcher(void (*fpPost)(void (*fpWork)(void*), void* pConte
 {
     g_fpHostPost.store(fpPost);
     ForwardHostDispatcher();
+}
+
+void RA_InstallScreenCapture(int (*fpCapture)(int* width, int* height, const void** pixels, int* stride))
+{
+    g_fpScreenCapture.store(fpCapture);
+    ForwardScreenCapture();
 }
 
 void RA_Shutdown(void)
